@@ -1,8 +1,18 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'kiva_physiotherapy_jwt_secret_demo_2026';
+// In-memory token store for active admin sessions.
+// Cryptographically secure, random 256-bit session tokens.
+// Requires NO environment variable or persistent secret key.
+interface SessionData {
+  userId: number;
+  username: string;
+  role: string;
+  expiresAt: number;
+}
+
+const activeSessions = new Map<string, SessionData>();
 
 export function hashPassword(plainText: string): string {
   const salt = bcrypt.genSaltSync(10);
@@ -14,15 +24,35 @@ export function comparePassword(plainText: string, hash: string): boolean {
 }
 
 export function generateToken(payload: { userId: number; username: string; role: string }): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  // Generate a cryptographically strong 32-byte (256-bit) random hex token
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  activeSessions.set(token, {
+    userId: payload.userId,
+    username: payload.username,
+    role: payload.role,
+    expiresAt,
+  });
+
+  return token;
 }
 
 export function verifyToken(token: string): { userId: number; username: string; role: string } | null {
-  try {
-    return jwt.verify(token, JWT_SECRET) as { userId: number; username: string; role: string };
-  } catch {
+  if (!token) return null;
+  const session = activeSessions.get(token);
+  if (!session) return null;
+
+  if (Date.now() > session.expiresAt) {
+    activeSessions.delete(token);
     return null;
   }
+
+  return {
+    userId: session.userId,
+    username: session.username,
+    role: session.role,
+  };
 }
 
 export interface AuthRequest extends Request {

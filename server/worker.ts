@@ -5,16 +5,14 @@
  * Supported Cloudflare Bindings (optional, configured via Cloudflare Dashboard or wrangler.jsonc):
  * - env.DB: Cloudflare D1 Database binding for durable edge SQLite persistence
  * - env.REPORTS_BUCKET: Cloudflare R2 Bucket binding for secure patient report storage
- * - env.JWT_SECRET: Custom secret for admin authentication tokens
- * - env.BACKEND_API_URL: Optional external backend URL to proxy requests to
+ * - env.ADMIN_USERNAME: Custom admin username (defaults to 'kiva_admin')
+ * - env.ADMIN_PASSWORD: Custom admin password (defaults to 'KivaClinic@2026')
  */
 
 export interface Env {
   DB?: any; // Cloudflare D1Database
   REPORTS_BUCKET?: any; // Cloudflare R2Bucket
   ASSETS?: any; // Cloudflare Fetcher for static assets
-  JWT_SECRET?: string;
-  BACKEND_API_URL?: string;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
 }
@@ -243,64 +241,54 @@ function jsonResponse(data: any, status = 200, headers: Record<string, string> =
   });
 }
 
-// Simple Base64 URL safe JWT generator/verifier for Cloudflare runtime
-async function createToken(payload: any, secret: string): Promise<string> {
-  const enc = new TextEncoder();
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  const data = `${encodedHeader}.${encodedPayload}`;
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(data));
-  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-
-  return `${data}.${encodedSignature}`;
+// In-memory token store for active admin sessions on the Cloudflare edge runtime.
+// Cryptographically secure 256-bit random hex tokens requiring NO environment variable or persistent secret key.
+interface EdgeSessionData {
+  userId: number;
+  username: string;
+  role: string;
+  expiresAt: number;
 }
 
-async function verifyAuthToken(request: Request, secret: string): Promise<any | null> {
+const edgeSessions = new Map<string, EdgeSessionData>();
+
+function createToken(payload: { userId: number; username: string; role: string }): string {
+  const randomBytes = new Uint8Array(32);
+  crypto.getRandomValues(randomBytes);
+  const token = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  edgeSessions.set(token, {
+    userId: payload.userId,
+    username: payload.username,
+    role: payload.role,
+    expiresAt,
+  });
+
+  return token;
+}
+
+function verifyAuthToken(request: Request): { userId: number; username: string; role: string } | null {
   const authHeader = request.headers.get('authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
   }
-  const token = authHeader.split(' ')[1];
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
+  const token = authHeader.split(' ')[1]?.trim();
+  if (!token) return null;
 
-  try {
-    const enc = new TextEncoder();
-    const data = `${parts[0]}.${parts[1]}`;
-    const key = await crypto.subtle.importKey(
-      'raw',
-      enc.encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-    // Decode signature
-    let sigBase64 = parts[2].replace(/-/g, '+').replace(/_/g, '/');
-    while (sigBase64.length % 4) sigBase64 += '=';
-    const sigBytes = Uint8Array.from(atob(sigBase64), (c) => c.charCodeAt(0));
+  const session = edgeSessions.get(token);
+  if (!session) return null;
 
-    const isValid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(data));
-    if (!isValid) return null;
-
-    let payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    while (payloadBase64.length % 4) payloadBase64 += '=';
-    const payload = JSON.parse(atob(payloadBase64));
-    return payload;
-  } catch {
+  if (Date.now() > session.expiresAt) {
+    edgeSessions.delete(token);
     return null;
   }
+
+  return {
+    userId: session.userId,
+    username: session.username,
+    role: session.role,
+  };
 }
 
 /**
@@ -309,7 +297,6 @@ async function verifyAuthToken(request: Request, secret: string): Promise<any | 
 export async function handleApiRequest(request: Request, env: Env = {}, _ctx?: any): Promise<Response> {
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
-  const jwtSecret = env.JWT_SECRET || 'kiva_physiotherapy_jwt_secret_demo_2026';
 
   // Handle CORS Preflight
   if (method === 'OPTIONS') {
@@ -323,24 +310,7 @@ export async function handleApiRequest(request: Request, env: Env = {}, _ctx?: a
     });
   }
 
-  // 1. If user configured external backend proxy (e.g. Cloud Run, VPS, Railway)
-  if (env.BACKEND_API_URL && url.pathname.startsWith('/api/')) {
-    try {
-      const backendUrl = new URL(url.pathname + url.search, env.BACKEND_API_URL);
-      const forwardReq = new Request(backendUrl.toString(), {
-        method: request.method,
-        headers: request.headers,
-        body: ['GET', 'HEAD'].includes(method) ? undefined : await request.arrayBuffer(),
-        redirect: 'follow',
-      });
-      return await fetch(forwardReq);
-    } catch (err: any) {
-      console.error('Backend proxy error:', err);
-      // Fallback to edge handlers below
-    }
-  }
-
-  // 2. HEALTH CHECK
+  // 1. HEALTH CHECK
   if (url.pathname === '/api/health') {
     return jsonResponse({
       status: 'ok',
@@ -550,7 +520,7 @@ export async function handleApiRequest(request: Request, env: Env = {}, _ctx?: a
       const expectedPass = env.ADMIN_PASSWORD || 'KivaClinic@2026';
 
       if (username === expectedUser && password === expectedPass) {
-        const token = await createToken({ userId: 1, username, role: 'admin' }, jwtSecret);
+        const token = createToken({ userId: 1, username, role: 'admin' });
         return jsonResponse({
           token,
           user: { id: 1, username, role: 'admin', fullName: 'Dr. Sumit Sharma (PT)' },
@@ -565,14 +535,14 @@ export async function handleApiRequest(request: Request, env: Env = {}, _ctx?: a
 
   // 12. AUTH: ME
   if (url.pathname === '/api/auth/me') {
-    const user = await verifyAuthToken(request, jwtSecret);
+    const user = verifyAuthToken(request);
     if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
     return jsonResponse({ user });
   }
 
   // 13. ADMIN: OVERVIEW
   if (url.pathname === '/api/admin/overview') {
-    const user = await verifyAuthToken(request, jwtSecret);
+    const user = verifyAuthToken(request);
     if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     return jsonResponse({
@@ -585,7 +555,7 @@ export async function handleApiRequest(request: Request, env: Env = {}, _ctx?: a
 
   // 14. ADMIN: APPOINTMENTS
   if (url.pathname === '/api/admin/appointments') {
-    const user = await verifyAuthToken(request, jwtSecret);
+    const user = verifyAuthToken(request);
     if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     return jsonResponse({
@@ -596,7 +566,7 @@ export async function handleApiRequest(request: Request, env: Env = {}, _ctx?: a
   // 15. ADMIN: UPDATE APPOINTMENT
   const updateApptMatch = url.pathname.match(/^\/api\/admin\/appointments\/([^/]+)$/);
   if (updateApptMatch && method === 'PUT') {
-    const user = await verifyAuthToken(request, jwtSecret);
+    const user = verifyAuthToken(request);
     if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     const apptId = updateApptMatch[1];
@@ -615,7 +585,7 @@ export async function handleApiRequest(request: Request, env: Env = {}, _ctx?: a
 
   // 16. ADMIN: SETTINGS
   if (url.pathname === '/api/admin/settings') {
-    const user = await verifyAuthToken(request, jwtSecret);
+    const user = verifyAuthToken(request);
     if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     if (method === 'GET') {
