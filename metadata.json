@@ -1,0 +1,6 @@
+{
+  "name": "Kiva Physiotherapy Clinic",
+  "description": "Professional online physiotherapy consultation, detailed functional assessment, and personalized rehabilitation guidance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
