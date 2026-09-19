@@ -23,6 +23,7 @@ import { MedicalDisclaimerPage } from './pages/MedicalDisclaimerPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 
 import { BookingSubmissionResponse } from './types';
+import { recordPageView } from './utils/performanceTracker';
 
 const VALID_ROUTES = new Set([
   'home',
@@ -90,6 +91,11 @@ export default function App() {
       window.removeEventListener('hashchange', handleLocationChange);
     };
   }, []);
+
+  // Performance tracking: Record client-side page views & route transitions
+  useEffect(() => {
+    recordPageView(currentPage);
+  }, [currentPage]);
 
   const handleNavigate = (page: string, params?: { reason?: string }) => {
     if (params?.reason) {
