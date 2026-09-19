@@ -24,25 +24,71 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 
 import { BookingSubmissionResponse } from './types';
 
+const VALID_ROUTES = new Set([
+  'home',
+  'about',
+  'services',
+  'service',
+  'online-consultation',
+  'gallery',
+  'reviews',
+  'faq',
+  'contact',
+  'booking',
+  'appointments',
+  'confirmation',
+  'status',
+  'booking-status',
+  'privacy',
+  'privacy-policy',
+  'terms',
+  'disclaimer',
+  'admin',
+]);
+
+function parseRouteFromLocation(): string {
+  if (typeof window === 'undefined') return 'home';
+
+  // 1. Check hash if explicitly provided (#/services, #services)
+  const hash = window.location.hash.replace(/^#\/?/, '').trim();
+  if (hash) {
+    const cleanHash = hash.split('?')[0].toLowerCase();
+    if (VALID_ROUTES.has(cleanHash)) {
+      return cleanHash;
+    }
+  }
+
+  // 2. Check pathname (/admin, /services, /about, etc.)
+  const pathname = window.location.pathname.replace(/^\//, '').replace(/\/$/, '').trim();
+  if (pathname) {
+    const cleanPath = pathname.split('?')[0].toLowerCase();
+    if (VALID_ROUTES.has(cleanPath)) {
+      return cleanPath;
+    }
+  }
+
+  return 'home';
+}
+
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<string>('home');
+  const [currentPage, setCurrentPage] = useState<string>(parseRouteFromLocation);
   const [bookingReason, setBookingReason] = useState<string | undefined>(undefined);
   const [confirmedBookingData, setConfirmedBookingData] = useState<BookingSubmissionResponse | null>(null);
 
-  // Sync with URL hash if present
+  // Sync with browser URL changes (pathname or hash, browser back/forward)
   useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.replace('#', '').trim();
-      if (hash) {
-        // Strip out query params if any
-        const cleanPage = hash.split('?')[0];
-        setCurrentPage(cleanPage);
-      }
+    const handleLocationChange = () => {
+      const page = parseRouteFromLocation();
+      setCurrentPage(page);
     };
 
-    handleHashChange();
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    handleLocationChange();
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('hashchange', handleLocationChange);
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('hashchange', handleLocationChange);
+    };
   }, []);
 
   const handleNavigate = (page: string, params?: { reason?: string }) => {
@@ -50,14 +96,19 @@ export default function App() {
       setBookingReason(params.reason);
     }
     setCurrentPage(page);
-    window.location.hash = page;
+    const targetUrl = page === 'home' ? '/' : `/${page}`;
+    if (window.location.pathname !== targetUrl) {
+      window.history.pushState({ page }, '', targetUrl);
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleBookingSuccess = (result: BookingSubmissionResponse) => {
     setConfirmedBookingData(result);
     setCurrentPage('confirmation');
-    window.location.hash = 'confirmation';
+    if (window.location.pathname !== '/confirmation') {
+      window.history.pushState({ page: 'confirmation' }, '', '/confirmation');
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

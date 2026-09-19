@@ -6,3 +6,15 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local SQLite databases and private uploads (patient privacy)
+data/*.sqlite
+data/*.db
+private_uploads/
+
+# Cloudflare Wrangler cache
+.wrangler/
+
+# Prevent Bun lockfile regeneration
+bun.lock
+bun.lockb

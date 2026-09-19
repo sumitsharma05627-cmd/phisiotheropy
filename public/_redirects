@@ -1,0 +1,10 @@
+# Cloudflare Pages / Static Hosting SPA Redirection Rules
+# Prevent static exposure of server bundle
+/server.cjs / 404
+/server.cjs.map / 404
+
+# Pass through API endpoints to Cloudflare Functions or reverse proxy
+/api/* /api/:splat 200
+
+# SPA Fallback: Rewrite all HTML navigation routes to index.html with HTTP 200
+/* /index.html 200
