@@ -6,5 +6,8 @@ pages_build_output_dir = "dist"
 build_command = "npm run build"
 directory = "dist"
 
+[observability]
+enabled = false
+
 [vars]
 NODE_VERSION = "22"
