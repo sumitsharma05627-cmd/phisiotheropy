@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kiva-physiotherapy-clinic",
+  "name": "phisiotheropy",
   "main": "server/worker.ts",
   "compatibility_date": "2026-03-01",
   "compatibility_flags": [
