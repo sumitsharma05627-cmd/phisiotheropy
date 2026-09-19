@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -94,7 +94,7 @@ export const FaqPage: React.FC<{ onNavigate: (page: string) => void }> = ({ onNa
   const ogImageUrl = getOgImageUrl('/kiva-logo.svg');
   const pageTitle = "Frequently Asked Questions (FAQ) | Kiva Physiotherapy Clinic";
   const pageDescription = "Find answers to common questions about online physiotherapy consultations, standard ₹500 fee, payment methods, medical report uploads, and technical setup.";
-  const faqSchema = buildFaqSchema(activeFaqs);
+  const faqSchema = useMemo(() => buildFaqSchema(activeFaqs, canonicalUrl), [activeFaqs, canonicalUrl]);
 
   return (
     <div className="bg-slate-50 min-h-screen py-10 sm:py-16">

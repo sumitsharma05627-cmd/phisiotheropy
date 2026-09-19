@@ -1,12 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChevronDown, HelpCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useClinic } from '../../context/ClinicContext';
+import { Helmet } from 'react-helmet-async';
+import { getCanonicalUrl } from '../../utils/seoHelper';
+import { buildFaqSchema } from '../../utils/seoSchemas';
 
 interface FaqAccordionProps {
   onNavigate: (page: string) => void;
+  pagePath?: string;
 }
 
-export const FaqAccordion: React.FC<FaqAccordionProps> = ({ onNavigate }) => {
+export const FaqAccordion: React.FC<FaqAccordionProps> = ({ onNavigate, pagePath = '/' }) => {
   const { faqs, settings } = useClinic();
   const [openIndex, setOpenIndex] = useState<number | null>(0); // First open by default
 
@@ -59,8 +63,20 @@ export const FaqAccordion: React.FC<FaqAccordionProps> = ({ onNavigate }) => {
     setOpenIndex(openIndex === idx ? null : idx);
   };
 
+  // Generate dynamic JSON-LD 'FAQPage' schema mapping currently configured admin/clinic questions
+  const canonicalUrl = getCanonicalUrl(pagePath);
+  const faqSchema = useMemo(() => {
+    return buildFaqSchema(displayFaqs, canonicalUrl);
+  }, [displayFaqs, canonicalUrl]);
+
   return (
     <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20">
+      <Helmet>
+        {/* Dynamic Schema.org FAQPage structured data for rich search results */}
+        <script type="application/ld+json">
+          {JSON.stringify(faqSchema)}
+        </script>
+      </Helmet>
       
       {/* Header */}
       <div className="text-center space-y-2.5 mb-12">

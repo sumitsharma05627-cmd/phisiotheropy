@@ -1,4 +1,5 @@
 import { ClinicSettings, ClinicService, FaqItem, PatientReview } from '../types';
+import { getCanonicalUrl } from './seoHelper';
 
 export const buildClinicOrganizationSchema = (settings?: Partial<ClinicSettings>, origin = 'https://kivaphysiotherapy.com') => {
   const clinicName = settings?.clinic_name || 'Kiva Physiotherapy Clinic';
@@ -112,19 +113,40 @@ export const buildOnlineConsultationServiceSchema = (fee = '500', origin = 'http
   };
 };
 
-export const buildFaqSchema = (faqs: FaqItem[], origin = 'https://kivaphysiotherapy.com') => {
+export const buildFaqSchema = (
+  faqs: Array<{ question: string; answer: string; [key: string]: any }>,
+  pageUrlOrOrigin?: string
+) => {
+  const targetUrl = pageUrlOrOrigin 
+    ? (pageUrlOrOrigin.startsWith('http') ? pageUrlOrOrigin : getCanonicalUrl(pageUrlOrOrigin))
+    : getCanonicalUrl('/faq');
+
+  const cleanUrl = targetUrl.replace(/\/$/, '');
+
+  const validFaqs = (faqs || [])
+    .filter(
+      (f) =>
+        f &&
+        typeof f.question === 'string' &&
+        f.question.trim().length > 0 &&
+        typeof f.answer === 'string' &&
+        f.answer.trim().length > 0
+    )
+    .map((f) => ({
+      '@type': 'Question',
+      name: f.question.trim(),
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: f.answer.trim(),
+      },
+    }));
+
   return {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
-    '@id': `${origin}/faq#questions`,
-    mainEntity: faqs.map((f) => ({
-      '@type': 'Question',
-      name: f.question,
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: f.answer,
-      },
-    })),
+    '@id': `${cleanUrl}#faq-schema`,
+    url: cleanUrl,
+    mainEntity: validFaqs,
   };
 };
 
